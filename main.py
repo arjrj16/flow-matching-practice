@@ -100,21 +100,29 @@ class MLP(nn.Module):
         return x
 
 # define model:
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"Using device: {device}")
 
 model = MLP(layers=5, channels=512)
+model = model.to(device)
 optim = torch.optim.AdamW(model.parameters(), lr=1e-4)
 
 # training loop:
-data = torch.Tensor(sampled_points)
+data = torch.Tensor(sampled_points).to(device)
 training_steps = 100_000
 batch_size = 64
+save_interval = 10000  # Save every 10k steps
+checkpoint_dir = "checkpoints"
+import os
+os.makedirs(checkpoint_dir, exist_ok=True)
+
 pbar = tqdm.tqdm(range(training_steps), desc = 'Training...')
 losses = []
 for i in pbar:
     x1 = data[torch.randint(data.size(0), (batch_size,))]
     x0 = torch.randn_like(x1)
     target = x1-x0
-    t = torch.rand(x1.size(0))
+    t = torch.rand(x1.size(0), device=device)
     xt = (1 - t[:, None]) * x0 + t[:, None] * x1
     pred = model(xt, t)
     loss = ((target - pred) **2).mean()
@@ -123,13 +131,35 @@ for i in pbar:
     optim.zero_grad()
     pbar.set_postfix(loss=loss.item())
     losses.append(loss.item())
+    
+    # Save checkpoint periodically
+    if (i + 1) % save_interval == 0:
+        checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_step_{i+1}.pt")
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optim.state_dict(),
+            'step': i + 1,
+            'loss': loss.item(),
+        }, checkpoint_path)
+        print(f"\nSaved checkpoint to {checkpoint_path}")
 
 # sampling:
-xt = torch.randn(1000, 2)
-steps = 1000
-for i, t in enumerate(torch.linspace(0, 1, steps), start=1):
-    pred = model(xt, t.expand(xt.size(0)))
-    st = xt + (1 / steps) * pred
+# xt = torch.randn(1000, 2)
+# steps = 1000
+# for i, t in enumerate(torch.linspace(0, 1, steps), start=1):
+#     pred = model(xt, t.expand(xt.size(0)))
+#     st = xt + (1 / steps) * pred
+
+# Save final model
+final_model_path = os.path.join(checkpoint_dir, "model_final.pt")
+torch.save({
+    'model_state_dict': model.state_dict(),
+    'optimizer_state_dict': optim.state_dict(),
+    'training_steps': training_steps,
+    'final_loss': losses[-1] if losses else None,
+}, final_model_path)
+print(f"\nSaved final model to {final_model_path}")
+
 
 
 
